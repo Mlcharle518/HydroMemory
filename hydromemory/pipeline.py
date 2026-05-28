@@ -104,7 +104,12 @@ def _fallback_privacy_risk(droplet: Droplet, context: Any = None) -> float:
 
 
 # --- Reservoir routing (PRD §5.3 / §14 "route_to_reservoir") ----------------
-def route_to_reservoir(droplet: Droplet, classification_sensitivity: float = 0.0) -> Reservoir:
+def route_to_reservoir(
+    droplet: Droplet,
+    classification_sensitivity: float = 0.0,
+    *,
+    default: Reservoir = Reservoir.WORKING_STREAM,
+) -> Reservoir:
     """Pick the home reservoir for a freshly captured droplet.
 
     Highly sensitive / identity-relevant memory -> SACRED; contaminated -> the
@@ -115,7 +120,7 @@ def route_to_reservoir(droplet: Droplet, classification_sensitivity: float = 0.0
         return Reservoir.CONTAMINATED
     if classification_sensitivity >= 0.85 or droplet.state.gravity >= 0.9:
         return Reservoir.SACRED
-    return Reservoir.WORKING_STREAM
+    return default
 
 
 def _estimate_state(event: dict[str, Any], classification: Any) -> State:
@@ -156,6 +161,7 @@ def process_experience(
     agent: AgentIdentity | None = None,
     k_related: int = 5,
     emit: Emitter = NULL_EMITTER,
+    default_reservoir: Reservoir = Reservoir.WORKING_STREAM,
 ) -> dict[str, Any]:
     """Run the §14 capture pipeline; return a decision dict.
 
@@ -196,7 +202,9 @@ def process_experience(
     if event.get("reservoir"):
         droplet.reservoir = normalize_reservoir(event["reservoir"])
     else:
-        droplet.reservoir = route_to_reservoir(droplet, classification.sensitivity)
+        droplet.reservoir = route_to_reservoir(
+            droplet, classification.sensitivity, default=default_reservoir
+        )
 
     # 6. Link to existing memories (semantic neighbours).
     related: list[str] = []
