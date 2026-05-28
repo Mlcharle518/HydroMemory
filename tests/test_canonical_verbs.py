@@ -12,7 +12,6 @@ from hydromemory.canonical.verbs import VERB_REGISTRY, CanonicalVerb, resolve_ve
 from hydromemory.config import HydroConfig
 from hydromemory.engine import build_engine
 
-
 _MEMORY_VERBS = {CanonicalVerb.ABSORB, CanonicalVerb.RECALL, CanonicalVerb.FORGET}
 _UPPER_VERBS = set(CanonicalVerb) - _MEMORY_VERBS
 
