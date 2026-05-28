@@ -137,6 +137,31 @@ def test_init_writes_gitignore(tmp_path):
     assert ".env" in gi
 
 
+def test_wizard_postgres_selection_writes_dsn_to_env(tmp_path):
+    inputs = "\n".join([
+        "myproj",                          # project name
+        "postgres",                        # storage backend
+        "postgresql://localhost/hm_test",  # DSN
+        "stub",                            # intelligence backend
+        "stub",                            # embedding source
+        "brute",                           # vector backend
+        "n",                               # vault?
+        "alice",                           # default agent
+        "approved",                        # default trust
+        "working_stream",                  # default reservoir
+        "1.0",                             # cycle tick
+        "",
+    ]) + "\n"
+    rc, _ = _run(tmp_path, inputs)
+    assert rc == 0
+    env_text = (tmp_path / ".env").read_text()
+    assert "HYDRO_STORAGE_BACKEND=postgres" in env_text
+    assert "HYDRO_DATABASE_URL=postgresql://localhost/hm_test" in env_text
+    toml = tomllib.loads((tmp_path / "hydromemory.toml").read_text())
+    assert toml["storage"]["backend"] == "postgres"
+    assert toml["storage"]["database_url"] == "postgresql://localhost/hm_test"
+
+
 def test_init_dataclass_field_names_match_render():
     # Belt-and-suspenders: if InitAnswers fields drift, _render_toml will break.
     answers = InitAnswers()
