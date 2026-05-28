@@ -1,0 +1,49 @@
+{
+  "_comment": "Hand-built consolidation themes (evals/README.md §3, problem #4). Each theme is a set of linked episodes that should distill into ONE principle. The principle TEXT is supplied explicitly so the eval isolates the consolidation+recall mechanism from the abstractor's text quality (which is backend-bound, out of scope). Treatment clusters the episodes and distills them; we then check whether the single principle surfaces, leads the ranking, and how many episodes it collapsed.",
+  "themes": [
+    {
+      "id": "concise",
+      "query": "how does the user prefer their answers formatted",
+      "principle": "The user prefers concise, structured answers — short, scannable, and to the point.",
+      "episodes": [
+        {"content": "The user asked me to shorten my last reply."},
+        {"content": "The user said the previous answer was too long-winded."},
+        {"content": "The user prefers bullet points over dense paragraphs."},
+        {"content": "The user thanked me for a crisp two-line summary."}
+      ]
+    },
+    {
+      "id": "depth",
+      "query": "what level of technical depth does the user want",
+      "principle": "The user values deep architectural reasoning and executable detail over shallow summaries.",
+      "episodes": [
+        {"content": "The user asked me to go deeper into the system design tradeoffs."},
+        {"content": "The user was frustrated by a hand-wavy high-level overview."},
+        {"content": "The user requested concrete code, not just concepts."},
+        {"content": "The user praised a detailed walkthrough of the data flow."}
+      ]
+    },
+    {
+      "id": "mornings",
+      "query": "when does the user like to schedule meetings",
+      "principle": "The user prefers morning meetings and protects afternoons for focused work.",
+      "episodes": [
+        {"content": "The user moved a 3pm sync to 9am."},
+        {"content": "The user declined an afternoon meeting to keep focus time."},
+        {"content": "The user said mornings are best for calls."},
+        {"content": "The user blocks afternoons on the calendar for deep work."}
+      ]
+    },
+    {
+      "id": "testing",
+      "query": "what is the user's stance on testing before merging",
+      "principle": "The user insists on thorough automated tests passing before any merge.",
+      "episodes": [
+        {"content": "The user blocked a PR that had no tests."},
+        {"content": "The user asked for coverage on the new module."},
+        {"content": "The user requires green CI before approving."},
+        {"content": "The user values a failing test that catches a regression."}
+      ]
+    }
+  ]
+}

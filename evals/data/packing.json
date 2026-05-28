@@ -1,0 +1,25 @@
+{
+  "_comment": "Lost-in-the-middle eval (evals/README.md §3, problem #1 assembly). A shared pool of irrelevant filler facts plus cases, each with the one fact (needle) that answers its question. The eval inserts the needle at the EDGES (first/last slot) vs the MIDDLE of the context block and asks a real model the question; if edge accuracy beats middle accuracy, the model under-attends to the center — validating the primacy/recency placement that pack_working_set implements. Answers are distinctive substrings absent from the fillers.",
+  "fillers": [
+    "The cafeteria serves lunch from 11:30 to 1:30 on weekdays.",
+    "All-hands meetings happen on the last Friday of each month.",
+    "The office guest wifi network is named Skyline-Guest.",
+    "Parking badges are renewed at the start of every calendar year.",
+    "The design team collaborates in a shared Figma workspace.",
+    "Quarterly engagement surveys are sent out by the People team.",
+    "The build pipeline runs on a fleet of Linux runners.",
+    "Internal documentation lives in the company wiki.",
+    "New hires finish onboarding during their first week.",
+    "The shared support inbox is checked roughly every two hours.",
+    "Company swag is ordered through the operations portal.",
+    "The weekly engineering newsletter goes out on Wednesdays."
+  ],
+  "cases": [
+    {"question": "What port does the Aurora gateway listen on?", "needle": "The Aurora gateway listens for traffic on port 8443.", "answer": "8443"},
+    {"question": "Who approved the Q3 budget?", "needle": "The Q3 budget was formally approved by Dana Reyes.", "answer": "Dana Reyes"},
+    {"question": "What is the command to roll back the Ledger service?", "needle": "Roll back the Ledger service with the command ledgerctl revert --to last-stable.", "answer": "ledgerctl revert"},
+    {"question": "Which city hosts the primary datacenter?", "needle": "The primary datacenter is hosted in Reykjavik.", "answer": "Reykjavik"},
+    {"question": "How many times does the ingest worker retry?", "needle": "The ingest worker retries at most seven times before giving up.", "answer": "seven"},
+    {"question": "Which team owns the Sentinel canary system?", "needle": "The Sentinel canary system is owned by the Release Engineering team.", "answer": "Release Engineering"}
+  ]
+}

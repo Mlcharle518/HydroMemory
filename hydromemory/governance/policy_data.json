@@ -1,0 +1,21 @@
+{
+  "policy": "reservoir_access",
+  "_defaults": {
+    "_comment": "Documented defaults for any flag a rule omits (PRD §10). surface/cloud/ocean inherit these for unspecified flags.",
+    "user_visible": false,
+    "requires_explanation": false,
+    "requires_thaw_protocol": false,
+    "usable_for_response": true,
+    "overwrite_allowed": true
+  },
+  "rules": [
+    {"reservoir": "working_stream", "access": "session_agents", "user_visible": false},
+    {"reservoir": "surface", "access": "approved_agents", "user_visible": true},
+    {"reservoir": "groundwater", "access": "high_trust_agents_only", "requires_explanation": true},
+    {"reservoir": "glacier", "access": "explicit_user_consent", "requires_thaw_protocol": true},
+    {"reservoir": "contaminated", "access": "filtration_agent_only", "usable_for_response": false},
+    {"reservoir": "sacred", "access": "explicit_user_consent_or_user_defined_core_behavior", "overwrite_allowed": false},
+    {"reservoir": "cloud", "access": "approved_agents"},
+    {"reservoir": "ocean", "access": "high_trust_agents_only"}
+  ]
+}

@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hydromemory"
+version = "0.1.0"
+description = "HydroMemory Protocol — a hydraulic stateful memory architecture (reference implementation)."
+readme = "docs/README.md"
+requires-python = ">=3.11"
+dependencies = ["numpy>=1.24"]
+
+[project.optional-dependencies]
+claude = ["anthropic>=0.39"]
+server = ["fastapi>=0.110", "uvicorn>=0.29", "websockets>=12"]
+vault = ["cryptography>=42"]
+local = ["sentence-transformers>=3"]
+# Wheel-friendly ANN backend (faiss-cpu). hnswlib is also supported as a backend
+# (`pip install hnswlib`) but builds from source on Windows (needs MSVC).
+ann = ["faiss-cpu>=1.8"]
+dev = ["pytest>=8.0", "ruff>=0.6", "mypy>=1.11", "httpx>=0.27", "cryptography>=42", "websockets>=12"]
+
+[project.scripts]
+hydromem = "hydromemory.cli:main"
+hydromem-server = "hydromemory.server:main"
+
+[tool.setuptools.packages.find]
+include = ["hydromemory*"]
+
+[tool.setuptools.package-data]
+hydromemory = ["governance/*.json", "py.typed"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 110
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+# UP042: keep (str, Enum) over StrEnum for predictable .value JSON serialization.
+ignore = ["E501", "UP042"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true
+files = ["hydromemory"]
+check_untyped_defs = true

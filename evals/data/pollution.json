@@ -1,0 +1,28 @@
+{
+  "_comment": "Hand-built pollution/forgetting timeline (evals/README.md §5.2). Two facts get corrected (their old versions must stop surfacing); two rare-but-true facts are low-salience and never contradicted (they must survive decay). A flat store keeps surfacing the stale facts; the HydroMemory lifecycle (pollute + decay) should not. Synthetic = controlled demonstration.",
+  "timeline": [
+    {"op": "absorb", "id": "launch_old", "content": "The product launch is scheduled for March 3."},
+    {"op": "absorb", "id": "pricing_old", "content": "The Pro plan costs 40 dollars per month."},
+    {"op": "absorb", "id": "ceo_kid", "content": "The CEO's daughter is named Mei.", "rare_true": true},
+    {"op": "absorb", "id": "office_city", "content": "The company headquarters is located in Lisbon.", "rare_true": true},
+    {"op": "absorb", "id": "distract_lang", "content": "The ingestion service is written in Rust."},
+    {"op": "absorb", "id": "distract_oncall", "content": "On-call shifts rotate every Monday morning."},
+
+    {"op": "correct", "target": "launch_old", "with": "The product launch slipped to April 10.", "new_id": "launch_new"},
+    {"op": "correct", "target": "pricing_old", "with": "The Pro plan now costs 55 dollars per month.", "new_id": "pricing_new"},
+
+    {"op": "checkpoint", "id": "cp_launch", "probe": "when is the product launch scheduled",
+     "expect_absent": ["launch_old"], "expect_present": ["launch_new"]},
+    {"op": "checkpoint", "id": "cp_pricing", "probe": "how much does the Pro plan cost per month",
+     "expect_absent": ["pricing_old"], "expect_present": ["pricing_new"]},
+
+    {"op": "decay", "cycles": 40},
+
+    {"op": "checkpoint", "id": "cp_rare_ceo", "probe": "what is the name of the CEO's daughter",
+     "expect_present": ["ceo_kid"]},
+    {"op": "checkpoint", "id": "cp_rare_office", "probe": "where is the company headquarters located",
+     "expect_present": ["office_city"]},
+    {"op": "checkpoint", "id": "cp_launch_after_decay", "probe": "when is the product launch scheduled",
+     "expect_absent": ["launch_old"], "expect_present": ["launch_new"]}
+  ]
+}

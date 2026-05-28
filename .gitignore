@@ -1,0 +1,33 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# HydroMemory local state
+*.db
+*.db-journal
+*.hydro.npy
+*.vecidx
+*.vec.npz
+hydromemory.db*
+
+# Eval reports (the harness emits these; datasets under evals/data/ are tracked)
+evals/results/
+
+# Node / TS client
+node_modules/
+clients/ts/dist/
+*.tsbuildinfo
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/

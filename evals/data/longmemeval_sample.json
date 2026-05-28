@@ -1,0 +1,75 @@
+{
+  "_comment": "Hand-built sample in LongMemEval's instance schema (question / answer / question_type / haystack_sessions = list of sessions, each a list of {role, content} turns). This is a SYNTHETIC sample to prove the adapter end-to-end without the multi-hundred-MB real download; run the real benchmark with `--dataset path/to/longmemeval_*.json`. Covers single-session, multi-session, knowledge-update, and preference types.",
+  "instances": [
+    {
+      "question_id": "s_single_city",
+      "question_type": "single-session-user",
+      "question": "Which city did I move to for my new job?",
+      "answer": "Portland",
+      "haystack_sessions": [
+        [
+          {"role": "user", "content": "I just accepted a new job and moved to Portland last month."},
+          {"role": "assistant", "content": "Congratulations on the new role and the move!"},
+          {"role": "user", "content": "Thanks, settling in has been busy."}
+        ],
+        [
+          {"role": "user", "content": "The rain here takes some getting used to."},
+          {"role": "assistant", "content": "The Pacific Northwest is known for it."}
+        ]
+      ]
+    },
+    {
+      "question_id": "m_dog_breed",
+      "question_type": "multi-session",
+      "question": "What breed is my dog?",
+      "answer": "beagle",
+      "haystack_sessions": [
+        [
+          {"role": "user", "content": "I adopted a dog over the weekend and named him Rex."},
+          {"role": "assistant", "content": "That's wonderful — welcome to the family, Rex!"}
+        ],
+        [
+          {"role": "user", "content": "Quick errand: I need to buy more printer paper for the office."},
+          {"role": "assistant", "content": "Noted."}
+        ],
+        [
+          {"role": "user", "content": "Rex had his first vet checkup today; the vet confirmed he's a healthy beagle."},
+          {"role": "assistant", "content": "Glad the beagle is doing well!"}
+        ]
+      ]
+    },
+    {
+      "question_id": "k_flight_update",
+      "question_type": "knowledge-update",
+      "question": "When is my flight currently scheduled?",
+      "answer": "June 12",
+      "haystack_sessions": [
+        [
+          {"role": "user", "content": "I booked my flight home for June 5."},
+          {"role": "assistant", "content": "Got it, June 5."}
+        ],
+        [
+          {"role": "user", "content": "The conference agenda looks packed this year."},
+          {"role": "assistant", "content": "Sounds like a busy week."}
+        ],
+        [
+          {"role": "user", "content": "Update: my flight got moved — it's now on June 12 instead of the 5th."},
+          {"role": "assistant", "content": "Understood, June 12 it is."}
+        ]
+      ]
+    },
+    {
+      "question_id": "p_vegetarian",
+      "question_type": "single-session-preference",
+      "question": "What dietary restriction should a host keep in mind for me?",
+      "answer": "vegetarian",
+      "haystack_sessions": [
+        [
+          {"role": "user", "content": "By the way, I've been vegetarian for about five years now."},
+          {"role": "assistant", "content": "Good to know — I'll keep that in mind."},
+          {"role": "user", "content": "I'm thinking of hosting a dinner party next month."}
+        ]
+      ]
+    }
+  ]
+}
