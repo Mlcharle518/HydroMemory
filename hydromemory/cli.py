@@ -107,6 +107,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_run = sub.add_parser("run-example", help="run a PRD §12 source example (A-F)")
     p_run.add_argument("name", help="example letter A-F")
 
+    p_tick = sub.add_parser(
+        "tick",
+        help="advance idle-time decay across the store (one-shot, or --daemon to loop)",
+    )
+    p_tick.add_argument(
+        "--daemon",
+        action="store_true",
+        help="run a tick loop in the foreground until Ctrl-C (interval = cycle_tick_seconds)",
+    )
+    p_tick.add_argument(
+        "--interval",
+        type=float,
+        default=None,
+        help="override cycle_tick_seconds for this run (daemon mode only)",
+    )
+
     # Interactive onboarding wizard — writes hydromemory.toml + .env (see onboarding.py).
     from hydromemory.onboarding import add_init_subparser
 
@@ -149,6 +165,37 @@ def build_parser() -> argparse.ArgumentParser:
     r_retire.add_argument("anchor_id")
 
     return parser
+
+
+def _run_tick(args: argparse.Namespace) -> int:
+    """Run a single tick or a daemonized tick loop. Both honour the configured
+    cycle_tick_seconds (or --interval, in daemon mode)."""
+    cfg = _config_from_args(args)
+    engine = build_engine(cfg)
+    try:
+        if not args.daemon:
+            print(json.dumps(engine.tick(), indent=2))
+            return 0
+        from hydromemory.scheduler import TickScheduler
+
+        scheduler = TickScheduler(cfg, interval_seconds=args.interval)
+        scheduler.start()
+        interval = args.interval if args.interval is not None else cfg.cycle_tick_seconds
+        print(f"hydromem tick daemon — interval={interval}s. Ctrl-C to stop.", file=sys.stderr)
+        try:
+            # Block the foreground until interrupted; the worker is the scheduler thread.
+            while True:
+                # threading.Event.wait without timeout would not respond to KeyboardInterrupt
+                # in older Pythons, so use a finite wait in a loop.
+                if scheduler._stop.wait(60.0):
+                    break
+        except KeyboardInterrupt:
+            print("\nstopping tick daemon...", file=sys.stderr)
+        finally:
+            scheduler.stop()
+    finally:
+        engine.close()
+    return 0
 
 
 def _run_vault_op(args: argparse.Namespace) -> int:
@@ -308,6 +355,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
         _render_one(run_example(args.name))
         return 0
+    if args.command == "tick":
+        return _run_tick(args)
     if args.command in ("vault-rotate", "vault-encrypt"):
         return _run_vault_op(args)
     if args.command == "review":

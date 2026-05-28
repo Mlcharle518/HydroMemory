@@ -32,6 +32,7 @@ from hydromemory.intelligence import Intelligence, build_intelligence
 from hydromemory.pipeline import process_experience, recall_for_agent
 from hydromemory.reader import ReaderResult, build_composer, compose_answer
 from hydromemory.recall import RecallWeights
+from hydromemory.reservoirs import normalize_reservoir
 from hydromemory.storage import DropletRepository, open_store
 from hydromemory.verbs import Verbs
 
@@ -85,6 +86,7 @@ class Engine:
             check_access=check_access,
             agent=agent,
             emit=self.emit,
+            default_reservoir=normalize_reservoir(self.config.default_reservoir),
         )
 
     def recall(
@@ -155,6 +157,54 @@ class Engine:
             if droplet is not None:
                 droplets.append(droplet)
         return compose_answer(query, droplets, composer=composer or build_composer(self.config))
+
+    def tick(self, now: Any = None) -> dict[str, Any]:
+        """Advance idle-time decay on every stored droplet by one or more cycles.
+
+        Idle cycles are derived from wall-clock elapsed time since the last
+        recall (or last decay, whichever is later) divided by
+        ``config.cycle_tick_seconds`` and floored. Re-running ``tick`` with no
+        elapsed time is a no-op — ``meta['last_decayed_at']`` is the idempotency
+        anchor.
+
+        Returns ``{"now": iso, "seen": N, "decayed": M, "cycles_total": K}``.
+        """
+        from datetime import UTC, datetime
+
+        from hydromemory.forgetting import decay as _decay
+
+        ts: datetime = now if now is not None else datetime.now(UTC)
+        tick_seconds = max(float(self.config.cycle_tick_seconds), 0.001)
+        seen = 0
+        decayed = 0
+        cycles_total = 0
+        for droplet_id in self.repo.all_ids():
+            droplet = self.repo.get(droplet_id)
+            if droplet is None:
+                continue
+            seen += 1
+            last_decayed_raw = droplet.meta.get("last_decayed_at")
+            last_decayed: datetime | None = None
+            if isinstance(last_decayed_raw, str):
+                try:
+                    last_decayed = datetime.fromisoformat(last_decayed_raw)
+                except ValueError:
+                    last_decayed = None
+            reference = max(
+                t
+                for t in (droplet.cycle.last_recalled, last_decayed, droplet.created_at)
+                if t is not None
+            )
+            elapsed = (ts - reference).total_seconds()
+            cycles = int(elapsed // tick_seconds)
+            if cycles <= 0:
+                continue
+            _decay(droplet, idle_cycles=cycles)
+            droplet.meta["last_decayed_at"] = ts.isoformat()
+            self.repo.upsert(droplet)
+            decayed += 1
+            cycles_total += cycles
+        return {"now": ts.isoformat(), "seen": seen, "decayed": decayed, "cycles_total": cycles_total}
 
     def attach_bus(self, bus: EventBus, *, actor: str = "engine", app_id: str | None = None) -> Emitter:
         """Route this engine's lifecycle events (verbs + pipeline) to ``bus``.
