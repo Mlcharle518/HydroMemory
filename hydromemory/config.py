@@ -43,6 +43,11 @@ class HydroConfig:
     # HydroIdentity layer (additive, default off; ADR-0052). Stack position 3: the stable-pattern
     # layer between Memory and Intent (roles/values/boundaries/posture); highest-caution updates (§16).
     identity_enabled: bool = False
+    # Wizard-seeded defaults consumed by the CLI when no explicit flag is passed.
+    default_agent: str = "assistant"
+    default_trust: str = "approved"
+    default_reservoir: str = "working_stream"
+    cycle_tick_seconds: float = 1.0
 
     @classmethod
     def from_env(cls) -> HydroConfig:
@@ -72,4 +77,8 @@ class HydroConfig:
             integrate_enabled=os.environ.get("HYDRO_INTEGRATE_ENABLED", "").lower() in ("1", "true", "yes"),
             sense_enabled=os.environ.get("HYDRO_SENSE_ENABLED", "").lower() in ("1", "true", "yes"),
             identity_enabled=os.environ.get("HYDRO_IDENTITY_ENABLED", "").lower() in ("1", "true", "yes"),
+            default_agent=os.environ.get("HYDRO_DEFAULT_AGENT", "assistant"),
+            default_trust=os.environ.get("HYDRO_DEFAULT_TRUST", "approved"),
+            default_reservoir=os.environ.get("HYDRO_DEFAULT_RESERVOIR", "working_stream"),
+            cycle_tick_seconds=float(os.environ.get("HYDRO_CYCLE_TICK_SECONDS", "1.0")),
         )
