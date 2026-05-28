@@ -61,8 +61,9 @@ class InitAnswers:
 
     project_name: str = "hydromemory"
     # storage
-    storage_backend: str = "sqlite"  # only shipped backend; "postgres" reserved
+    storage_backend: str = "sqlite"  # "sqlite" | "postgres"
     db_path: str = "./hydromemory.db"
+    database_url: str = ""  # Postgres DSN; empty unless storage_backend == "postgres"
     # vectors / embeddings
     vector_backend: str = "brute"
     vector_dim: int = 256
@@ -105,7 +106,13 @@ def _render_toml(answers: InitAnswers) -> str:
         ("project", [("name", answers.project_name)]),
         (
             "storage",
-            [("backend", answers.storage_backend), ("db_path", answers.db_path)],
+            [
+                ("backend", answers.storage_backend),
+                ("db_path", answers.db_path),
+                # Note: database_url is only meaningful for the postgres backend; the TOML
+                # keeps it for round-trip but the empty default means no Postgres in .env.
+                ("database_url", answers.database_url),
+            ],
         ),
         (
             "vectors",
@@ -159,6 +166,7 @@ def load_toml_defaults(path: Path) -> InitAnswers:
     storage = data.get("storage", {})
     answers.storage_backend = storage.get("backend", answers.storage_backend)
     answers.db_path = storage.get("db_path", answers.db_path)
+    answers.database_url = storage.get("database_url", answers.database_url)
     vectors = data.get("vectors", {})
     answers.vector_backend = vectors.get("backend", answers.vector_backend)
     answers.vector_dim = int(vectors.get("dim", answers.vector_dim))
@@ -181,6 +189,7 @@ def _env_pairs(answers: InitAnswers) -> list[tuple[str, str]]:
     """The ``.env`` projection of an answer set. Keep keys ASCII and shell-safe."""
 
     pairs: list[tuple[str, str]] = [
+        ("HYDRO_STORAGE_BACKEND", answers.storage_backend),
         ("HYDRO_DB_PATH", answers.db_path),
         ("HYDRO_VECTOR_BACKEND", answers.vector_backend),
         ("HYDRO_EMBED_DIM", str(answers.vector_dim)),
@@ -193,6 +202,8 @@ def _env_pairs(answers: InitAnswers) -> list[tuple[str, str]]:
         ("HYDRO_DEFAULT_RESERVOIR", answers.default_reservoir),
         ("HYDRO_CYCLE_TICK_SECONDS", str(answers.cycle_tick_seconds)),
     ]
+    if answers.storage_backend == "postgres" or answers.database_url:
+        pairs.append(("HYDRO_DATABASE_URL", answers.database_url))
     if answers.intelligence_backend == "claude" or answers.anthropic_api_key:
         pairs.append(("ANTHROPIC_API_KEY", answers.anthropic_api_key))
     if answers.vault_enabled or answers.vault_key:
@@ -361,8 +372,8 @@ def run_wizard(
     # 2. Storage
     stream_out.write(
         "\nWhere should droplets live?\n"
-        "  sqlite              local file (default, only shipped backend)\n"
-        "  postgres            pgvector — experimental, not yet implemented\n"
+        "  sqlite              local file (default)\n"
+        "  postgres            pgvector-backed (requires `.[postgres]` extra)\n"
     )
     answers.storage_backend = _ask(
         "Backend",
@@ -373,18 +384,25 @@ def run_wizard(
         non_interactive=non_interactive,
     )
     if answers.storage_backend == "postgres":
-        stream_out.write(
-            "  note: postgres backend is reserved but not implemented; "
-            "falling back to sqlite for now.\n"
+        answers.extras_to_install.append("postgres")
+        env_dsn = os.environ.get("HYDRO_DATABASE_URL", "")
+        prompt_default = env_dsn or defaults.database_url or "postgresql://localhost/hydromemory"
+        raw = _ask(
+            "  database URL (HYDRO_DATABASE_URL)",
+            prompt_default,
+            stream_in=stream_in,
+            stream_out=stream_out,
+            non_interactive=non_interactive,
         )
-        answers.storage_backend = "sqlite"
-    answers.db_path = _ask(
-        "SQLite path",
-        defaults.db_path,
-        stream_in=stream_in,
-        stream_out=stream_out,
-        non_interactive=non_interactive,
-    )
+        answers.database_url = raw
+    else:
+        answers.db_path = _ask(
+            "SQLite path",
+            defaults.db_path,
+            stream_in=stream_in,
+            stream_out=stream_out,
+            non_interactive=non_interactive,
+        )
 
     # 3. Intelligence backend
     stream_out.write(

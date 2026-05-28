@@ -9,6 +9,11 @@ from dataclasses import dataclass, field
 @dataclass
 class HydroConfig:
     db_path: str = "hydromemory.db"
+    # Storage backend: "sqlite" (default, file-backed) | "postgres" (pgvector).
+    storage_backend: str = "sqlite"
+    # Postgres DSN; required when storage_backend == "postgres". Read from
+    # HYDRO_DATABASE_URL so secrets stay out of argv.
+    database_url: str | None = None
     vector_dim: int = 256
     vector_backend: str = "brute"  # "brute" (exact, default) | "ann" (hnswlib, .[ann] extra)
     intelligence_backend: str = "stub"  # "stub" | "claude"
@@ -57,6 +62,8 @@ class HydroConfig:
         default_dim = "384" if embedding_backend.lower() == "local" else "256"
         return cls(
             db_path=os.environ.get("HYDRO_DB_PATH", "hydromemory.db"),
+            storage_backend=os.environ.get("HYDRO_STORAGE_BACKEND", "sqlite"),
+            database_url=os.environ.get("HYDRO_DATABASE_URL"),
             vector_dim=int(os.environ.get("HYDRO_EMBED_DIM", default_dim)),
             vector_backend=os.environ.get("HYDRO_VECTOR_BACKEND", "brute"),
             intelligence_backend=backend,
