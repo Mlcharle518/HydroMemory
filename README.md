@@ -31,9 +31,17 @@ python -m venv .venv
 # macOS / Linux:      source .venv/bin/activate
 pip install -e ".[dev]"
 
+hydromem init                  # interactive wizard: writes hydromemory.toml + .env
+# or, take all defaults (offline stub) and skip prompts:
+hydromem init --non-interactive --preset offline
+
 pytest                         # offline test suite
 hydromem run-example A         # a PRD §12 source example (A–F)
 ```
+
+The wizard captures backend choices (storage, embeddings, vector index, vault,
+default identity, cycle tick) and writes a `hydromemory.toml` + `.env` pair.
+Re-running it uses the existing values as defaults — safe to repeat.
 
 Drive it from Python:
 

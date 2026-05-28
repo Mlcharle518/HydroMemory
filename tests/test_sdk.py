@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import pytest
 
-from hydromemory.canonical.envelope import ObjectType
 from hydromemory.canonical.verbs import CanonicalVerb
 from hydromemory.config import HydroConfig
 from hydromemory.sdk import HydroClient, SdkError
