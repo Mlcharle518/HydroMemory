@@ -102,6 +102,10 @@ class Verbs:
     phase_config: PhaseConfig = DEFAULT_PHASE_CONFIG
     # v2 §9: emit lifecycle events to the bus. Defaults to a no-op so v1 is unchanged.
     emit: Emitter = NULL_EMITTER
+    # The global workspace (ADR-0053): the capacity-limited shared store the
+    # attend/pin/release verbs drive. ``None`` keeps the memory-only build free of
+    # a standing workspace (v1 behavior); ``build_engine`` wires a real one.
+    workspace: Any = None
 
     # ------------------------------------------------------------------ #
     # Internal helpers
@@ -549,6 +553,19 @@ class Verbs:
             droplet_id=principle_droplet.id,
             payload={"distilled_from": [d.id for d in members], "reservoir": principle_droplet.reservoir.value},
         )
+        # Tool-output gating (ADR-0053): DISTILL is the OSS's strongest "executed
+        # outcome" seam. Compete the fresh principle for a workspace seat — but only
+        # a *consequential* consolidation clears the outcome floor; a thin one
+        # bypasses the shared store. Only the compact reference (the principle's id)
+        # ever enters, never the joined source payload. Additive + fail-safe: a
+        # broken workspace must never break distillation.
+        if self.workspace is not None:
+            try:
+                from hydromemory.workspace import admit_distilled_outcome
+
+                admit_distilled_outcome(self.workspace, principle_droplet, source_agent="distill")
+            except Exception:  # noqa: BLE001 - workspace population must never break distill
+                pass
         return principle_droplet
 
     # ------------------------------------------------------------------ #
@@ -642,6 +659,80 @@ class Verbs:
             decision=decision_dict,
             outcome={"deleted": True, "droplet_id": droplet.id},
         )
+
+    # ------------------------------------------------------------------ #
+    # Global workspace: top-down control (ADR-0053).
+    # ATTEND/PIN/RELEASE let an operator (or an agent) deliberately set the
+    # capacity-limited shared store's contents — the "deliberate modulation" arm
+    # of the global-workspace pattern, in the same governance-gated spirit as the
+    # 15 lifecycle verbs. All three no-op gracefully when no workspace is wired.
+    # ------------------------------------------------------------------ #
+    def attend(
+        self,
+        droplet: Droplet,
+        *,
+        agent: Any = None,
+        context: Any = None,
+        pin: bool = False,
+    ) -> ProtocolResponse:
+        """Deliberately promote ``droplet`` into the workspace (top-down attention).
+
+        Governance-checked with ``check_access`` (Operation.READ — attending
+        surfaces the memory into active awareness); on deny the droplet does not
+        enter. A deliberate ``attend`` bypasses the salience admission floor (the
+        operator's choice *is* the salience signal) and, with ``pin=True``, also
+        pins it. Scores the droplet with the §5.6 recall formula so it sorts
+        sensibly against salience-promoted residents.
+        """
+        if self.workspace is None:
+            return ProtocolResponse(
+                operation="ATTEND", result=False, outcome={"reason": "no workspace wired"}
+            )
+        decision_dict: dict[str, Any] | None = None
+        if self.check_access is not None and agent is not None:
+            from hydromemory.governance.obligations import Operation
+
+            decision = self.check_access(droplet, agent, context, Operation.READ)
+            decision_dict = decision.to_dict() if hasattr(decision, "to_dict") else {"allowed": bool(decision)}
+            if not getattr(decision, "allowed", True):
+                return ProtocolResponse(
+                    operation="ATTEND",
+                    result=False,
+                    decision=decision_dict,
+                    outcome={"attended": False, "droplet_id": droplet.id},
+                )
+
+        agent_name = getattr(agent, "name", agent) or "operator"
+        score = hydro_recall_score(
+            droplet,
+            {},
+            semantic_similarity=1.0,  # a deliberate attend is maximally "relevant".
+            permission_score=self._perm(droplet, agent) if agent is not None else 1.0,
+            privacy_risk=self._privacy(droplet, context),
+            contamination_penalty=1.0 - droplet.state.purity,
+        )
+        # pinned promotions bypass the admission floor; an unpinned deliberate
+        # attend still enters because we pass pinned when the caller asks, and
+        # otherwise floor it at the admission floor so it is never rejected.
+        resident = self.workspace.promote(
+            droplet, max(score, self.workspace.admission_floor), source_agent=str(agent_name), pinned=pin
+        )
+        return ProtocolResponse(
+            operation="ATTEND",
+            result=resident,
+            decision=decision_dict,
+            outcome={"attended": resident, "pinned": pin, "droplet_id": droplet.id},
+        )
+
+    def pin(self, droplet_id: str) -> ProtocolResponse:
+        """Pin a resident workspace entry so salience can never evict it."""
+        ok = self.workspace.pin(droplet_id) if self.workspace is not None else False
+        return ProtocolResponse(operation="PIN", result=ok, outcome={"droplet_id": droplet_id})
+
+    def release(self, droplet_id: str) -> ProtocolResponse:
+        """Release (unpin) a resident workspace entry so it may be evicted again."""
+        ok = self.workspace.release(droplet_id) if self.workspace is not None else False
+        return ProtocolResponse(operation="RELEASE", result=ok, outcome={"droplet_id": droplet_id})
 
 
 __all__ = ["Verbs", "RecallMode"]

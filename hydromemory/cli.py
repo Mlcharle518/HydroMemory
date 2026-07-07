@@ -100,6 +100,22 @@ def build_parser() -> argparse.ArgumentParser:
     p_run = sub.add_parser("run-example", help="run a PRD §12 source example (A-F)")
     p_run.add_argument("name", help="example letter A-F")
 
+    # Global workspace (ADR-0053): report + govern the capacity-limited shared store.
+    p_ws = sub.add_parser("workspace", help="inspect and control the global workspace")
+    wsub = p_ws.add_subparsers(dest="workspace_action", required=False)
+    wsub.add_parser("show", help="report the resident set (the default)")
+    w_attend = wsub.add_parser("attend", help="promote a droplet into the workspace")
+    w_attend.add_argument("droplet_id")
+    w_attend.add_argument("--pin", action="store_true", help="also pin it (evict-exempt)")
+    w_attend.add_argument("--agent", default="operator")
+    w_attend.add_argument("--trust", choices=["session", "approved", "high_trust"], default="approved")
+    w_pin = wsub.add_parser("pin", help="pin a resident entry (evict-exempt)")
+    w_pin.add_argument("droplet_id")
+    w_release = wsub.add_parser("release", help="unpin a resident entry")
+    w_release.add_argument("droplet_id")
+    w_clear = wsub.add_parser("clear", help="clear the workspace (keeps pins)")
+    w_clear.add_argument("--include-pinned", action="store_true", help="also clear pinned entries")
+
     # Vault key management. Keys are read from the environment (HYDRO_VAULT_KEY /
     # HYDRO_VAULT_PREV_KEYS), never passed as args, so secrets stay out of argv.
     sub.add_parser(
@@ -314,9 +330,51 @@ def main(argv: Sequence[str] | None = None) -> int:
             _render(engine.recall(args.query, agent=_agent_from_args(args)))
         elif args.command == "hql":
             _render(engine.hql(args.query, agent=_agent_from_args(args)))
+        elif args.command == "workspace":
+            _run_workspace(engine, args)
     finally:
         engine.close()
     return 0
+
+
+def _run_workspace(engine: Any, args: argparse.Namespace) -> None:
+    """Report or govern the global workspace (ADR-0053) via the CLI surface."""
+    ws = engine.workspace
+    if ws is None:
+        print("(workspace not available on this engine)")
+        return
+    action = getattr(args, "workspace_action", None) or "show"
+
+    if action == "attend":
+        droplet = engine.repo.get(args.droplet_id)
+        if droplet is None:
+            print(f"droplet not found: {args.droplet_id}")
+            return
+        agent = _agent_from_args(args)
+        resp = engine.verbs.attend(droplet, agent=agent, pin=getattr(args, "pin", False))
+        print(f"attended: {resp.result}  pinned: {resp.outcome.get('pinned')}")
+    elif action == "pin":
+        print(f"pinned: {engine.verbs.pin(args.droplet_id).result}")
+    elif action == "release":
+        print(f"released: {engine.verbs.release(args.droplet_id).result}")
+    elif action == "clear":
+        removed = ws.clear(include_pinned=getattr(args, "include_pinned", False))
+        print(f"cleared {removed} ent(y|ies)".replace("ent(y|ies)", "entry" if removed == 1 else "entries"))
+
+    # Always report the resident set after any mutation (or on plain `show`).
+    print(f"workspace: {len(ws)}/{ws.capacity} resident")
+    report = ws.report()
+    if not report:
+        print("(empty)")
+        return
+    for i, item in enumerate(report):
+        if i:
+            print("-" * 60)
+        marker = "PINNED " if item.meta.get("workspace", {}).get("pinned") else ""
+        print(f"[{marker}{item.mode.value}] score={item.score:.3f} id={item.droplet_id}")
+        text = item.surface_text or item.internal_guidance
+        if text:
+            print(f"  {text}")
 
 
 if __name__ == "__main__":

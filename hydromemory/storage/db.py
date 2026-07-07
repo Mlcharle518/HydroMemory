@@ -45,6 +45,40 @@ CREATE TABLE IF NOT EXISTS links (
 )
 """
 
+# The global workspace (ADR-0053): the capacity-limited shared store. Deliberately
+# tiny (a handful of rows, capped in code) — a standing "active awareness", not a
+# second copy of the droplets table. ``position`` preserves the resident order;
+# ``droplet_id`` references the long-term droplets table (the archive layer).
+_WORKSPACE_DDL = """
+CREATE TABLE IF NOT EXISTS workspace (
+    position     INTEGER PRIMARY KEY,
+    droplet_id   TEXT NOT NULL,
+    score        REAL,
+    source_agent TEXT,
+    pinned       INTEGER,
+    entered_at   TEXT
+)
+"""
+
+# The workspace archive ledger (ADR-0053): an unbounded, append-only record of
+# every entry evicted/suppressed/cleared out of the capacity-limited workspace,
+# carrying the slot's last-held score/pin. Rehydration reads the newest row for a
+# droplet_id to bring an evicted-but-re-activated item back into active awareness
+# (tier-2 <- tier-3). The referenced droplet still lives in the droplets table;
+# this records only the slot's departure, never a copy of the memory.
+_WORKSPACE_ARCHIVE_DDL = """
+CREATE TABLE IF NOT EXISTS workspace_archive (
+    rowid_pk     INTEGER PRIMARY KEY AUTOINCREMENT,
+    droplet_id   TEXT NOT NULL,
+    score        REAL,
+    source_agent TEXT,
+    pinned       INTEGER,
+    entered_at   TEXT,
+    archived_at  TEXT,
+    reason       TEXT
+)
+"""
+
 _INDEX_DDL = (
     "CREATE INDEX IF NOT EXISTS idx_droplets_reservoir ON droplets (reservoir)",
     "CREATE INDEX IF NOT EXISTS idx_droplets_phase ON droplets (phase)",
@@ -54,6 +88,7 @@ _INDEX_DDL = (
     "CREATE INDEX IF NOT EXISTS idx_links_src ON links (src_id)",
     "CREATE INDEX IF NOT EXISTS idx_links_dst ON links (dst_id)",
     "CREATE INDEX IF NOT EXISTS idx_droplets_app_id ON droplets (app_id)",
+    "CREATE INDEX IF NOT EXISTS idx_workspace_archive_droplet ON workspace_archive (droplet_id)",
 )
 
 
@@ -78,6 +113,8 @@ def init_schema(conn: sqlite3.Connection) -> None:
     """
     conn.execute(_DROPLETS_DDL)
     conn.execute(_LINKS_DDL)
+    conn.execute(_WORKSPACE_DDL)
+    conn.execute(_WORKSPACE_ARCHIVE_DDL)
     columns = {row[1] for row in conn.execute("PRAGMA table_info(droplets)").fetchall()}
     if "app_id" not in columns:
         conn.execute("ALTER TABLE droplets ADD COLUMN app_id TEXT")

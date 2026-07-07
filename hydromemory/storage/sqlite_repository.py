@@ -12,12 +12,12 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Callable, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from hydromemory.config import HydroConfig
 from hydromemory.reservoirs import Reservoir
-from hydromemory.schema import Droplet, Links, Phase, Visibility, _fmt_dt
+from hydromemory.schema import Droplet, Links, Phase, Visibility, _fmt_dt, _parse_dt
 from hydromemory.storage.db import connect, init_schema
 from hydromemory.storage.repository import DropletRepository
 from hydromemory.storage.vector_index import build_vector_index
@@ -333,6 +333,101 @@ class SqliteDropletRepository(DropletRepository):
             (json.dumps(cycle), droplet_id),
         )
         self._conn.commit()
+
+    # ----------------------------------------------------------- workspace
+    # The global workspace (ADR-0053) persists as a tiny ``workspace`` table
+    # (dozens of rows max, capped in code by :class:`~hydromemory.workspace.Workspace`).
+    # This repository doubles as the workspace's :class:`WorkspaceStore` so the
+    # standing set survives reopen alongside the droplets it references.
+    def load_workspace(self) -> list[Any]:
+        """Load the ordered workspace entries (empty when the store is fresh)."""
+        from hydromemory.workspace import WorkspaceEntry
+
+        rows = self._conn.execute(
+            "SELECT droplet_id, score, source_agent, pinned, entered_at "
+            "FROM workspace ORDER BY position"
+        ).fetchall()
+        return [
+            WorkspaceEntry(
+                droplet_id=r["droplet_id"],
+                score=float(r["score"] or 0.0),
+                source_agent=r["source_agent"] or "system",
+                pinned=bool(r["pinned"]),
+                entered_at=_parse_dt(r["entered_at"]) or datetime.now(UTC),
+            )
+            for r in rows
+        ]
+
+    def save_workspace(self, entries: list[Any]) -> None:
+        """Replace the workspace rows with ``entries`` (a full rewrite of a tiny set)."""
+        self._conn.execute("DELETE FROM workspace")
+        rows = [
+            (
+                pos,
+                e.droplet_id,
+                float(e.score),
+                e.source_agent,
+                1 if e.pinned else 0,
+                _fmt_dt(e.entered_at),
+            )
+            for pos, e in enumerate(entries)
+        ]
+        if rows:
+            self._conn.executemany(
+                "INSERT INTO workspace "
+                "(position, droplet_id, score, source_agent, pinned, entered_at) "
+                "VALUES (?,?,?,?,?,?)",
+                rows,
+            )
+        self._conn.commit()
+
+    def archive_entry(self, entry: Any, *, reason: str) -> None:
+        """Append an evicted workspace entry to the append-only archive ledger (ADR-0053).
+
+        Records the slot's last-held score/pin so a later :meth:`Workspace.rehydrate`
+        can re-compete it at the salience it had when it left the live store. The
+        referenced droplet is never touched here — this is the tier-3 slot record,
+        not a copy of the memory.
+        """
+        self._conn.execute(
+            "INSERT INTO workspace_archive "
+            "(droplet_id, score, source_agent, pinned, entered_at, archived_at, reason) "
+            "VALUES (?,?,?,?,?,?,?)",
+            (
+                entry.droplet_id,
+                float(entry.score),
+                entry.source_agent,
+                1 if entry.pinned else 0,
+                _fmt_dt(entry.entered_at),
+                _fmt_dt(datetime.now(UTC)),
+                reason,
+            ),
+        )
+        self._conn.commit()
+
+    def latest_archived(self, droplet_id: str) -> Any | None:
+        """Return the most-recently-archived entry for ``droplet_id`` (for rehydration).
+
+        The ledger is append-only, so the newest row is the state the droplet had
+        when it last left the live workspace. Returns ``None`` when it was never
+        archived (nothing to rehydrate).
+        """
+        from hydromemory.workspace import WorkspaceEntry
+
+        row = self._conn.execute(
+            "SELECT droplet_id, score, source_agent, pinned, entered_at "
+            "FROM workspace_archive WHERE droplet_id = ? ORDER BY rowid_pk DESC LIMIT 1",
+            (droplet_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return WorkspaceEntry(
+            droplet_id=row["droplet_id"],
+            score=float(row["score"] or 0.0),
+            source_agent=row["source_agent"] or "system",
+            pinned=bool(row["pinned"]),
+            entered_at=_parse_dt(row["entered_at"]) or datetime.now(UTC),
+        )
 
     # --------------------------------------------------------------- index
     def rebuild_index(self) -> None:

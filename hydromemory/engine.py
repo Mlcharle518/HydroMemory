@@ -11,6 +11,7 @@ other; everything underneath stays dependency-injected and individually testable
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Any
 
 from hydromemory import contamination as contamination_mod
@@ -34,6 +35,7 @@ from hydromemory.reader import ReaderResult, build_composer, compose_answer
 from hydromemory.recall import RecallWeights
 from hydromemory.storage import DropletRepository, open_store
 from hydromemory.verbs import Verbs
+from hydromemory.workspace import Workspace, WorkspaceStore
 
 
 @dataclass
@@ -45,6 +47,10 @@ class Engine:
     intelligence: Intelligence
     verbs: Verbs
     emit: Emitter = NULL_EMITTER
+    # The global workspace (ADR-0053): the capacity-limited shared store that
+    # capture + recall promote into and that ``answer`` reads from. Always present
+    # on a built engine so the workspace is a first-class part of the assembly.
+    workspace: Workspace | None = None
     # HydroIntent surface (ADR-0037), present only when config.intents_enabled.
     # Typed as Any to keep the memory engine free of a hard import on the layer.
     intents: Any = None
@@ -85,6 +91,7 @@ class Engine:
             check_access=check_access,
             agent=agent,
             emit=self.emit,
+            workspace=self.workspace,
         )
 
     def recall(
@@ -105,6 +112,7 @@ class Engine:
             permission_score=permission_score,
             privacy_risk=privacy_risk,
             emit=self.emit,
+            workspace=self.workspace,
         )
 
     def hql(
@@ -154,7 +162,39 @@ class Engine:
             droplet = self.repo.get(result.droplet_id)
             if droplet is not None:
                 droplets.append(droplet)
+        # Global workspace broadcast (ADR-0053): the reader composes over the SAME
+        # small standing set every other module sees. Resident workspace droplets
+        # (operator-pinned or salience-promoted) are placed at the FRONT of the
+        # context — ahead of this query's fresh recall — so an attended memory
+        # redirects the answer even when raw similarity would have buried or
+        # excluded it. Deduped against the recalled droplets; order preserved.
+        droplets = self._compose_context(droplets)
         return compose_answer(query, droplets, composer=composer or build_composer(self.config))
+
+    def _compose_context(self, recalled: list[Any]) -> list[Any]:
+        """Place the workspace's resident droplets at the FRONT of ``recalled``.
+
+        This is the read side of the workspace broadcast: it injects the shared
+        store's contents at the reader's context-assembly point so ``answer``
+        reasons over the workspace first. Resident droplets lead in workspace order
+        (score-desc, pins first) even when this query's recall also surfaced them —
+        being resident is what makes them lead — and are removed from their
+        recalled position so they appear exactly once. A no-op when no workspace is
+        wired or empty.
+        """
+        if self.workspace is None:
+            return recalled
+        resident_ids = self.workspace.ids()
+        if not resident_ids:
+            return recalled
+        resident_set = set(resident_ids)
+        front: list[Any] = []
+        for did in resident_ids:
+            droplet = self.repo.get(did)
+            if droplet is not None:
+                front.append(droplet)
+        tail = [d for d in recalled if d.id not in resident_set]
+        return front + tail
 
     def attach_bus(self, bus: EventBus, *, actor: str = "engine", app_id: str | None = None) -> Emitter:
         """Route this engine's lifecycle events (verbs + pipeline) to ``bus``.
@@ -167,6 +207,10 @@ class Engine:
         _ensure_bus_repo(bus, self.repo)
         self.emit = Emitter(bus, actor=actor, app_id=app_id)
         self.verbs.emit = self.emit
+        # The workspace broadcasts WORKSPACE_UPDATED on the same bus so subscribers
+        # (the mesh, WS clients) observe the shared store change.
+        if self.workspace is not None:
+            self.workspace.emit = self.emit
         return self.emit
 
     def close(self) -> None:
@@ -225,6 +269,22 @@ def build_engine(config: HydroConfig | None = None, *, bus: EventBus | None = No
         emit = Emitter(bus)
     else:
         emit = NULL_EMITTER
+    # The global workspace (ADR-0053): the capacity-limited shared store. It
+    # persists through the repo (which doubles as its WorkspaceStore when SQLite),
+    # broadcasts every mutation on ``emit``, and archives evictions back to the
+    # long-term droplet store — an evicted item is re-upserted (idempotent, since
+    # it already lives there) with an archive marker, never deleted.
+    def _archive_evicted(droplet: Any) -> None:
+        droplet.meta["workspace_archived_at"] = datetime.now(UTC).isoformat()
+        repo.upsert(droplet)
+
+    workspace_store = repo if isinstance(repo, WorkspaceStore) else None
+    workspace = Workspace(
+        get_droplet=repo.get,
+        store=workspace_store,
+        emit=emit,
+        archive=_archive_evicted,
+    )
     verbs = Verbs(
         repo=repo,
         intelligence=intelligence,
@@ -234,6 +294,7 @@ def build_engine(config: HydroConfig | None = None, *, bus: EventBus | None = No
         permission_score=permission_score,
         privacy_risk=privacy_risk,
         emit=emit,
+        workspace=workspace,
     )
     intents = None
     if config.intents_enabled:
@@ -310,6 +371,7 @@ def build_engine(config: HydroConfig | None = None, *, bus: EventBus | None = No
         intelligence=intelligence,
         verbs=verbs,
         emit=emit,
+        workspace=workspace,
         intents=intents,
         judgment=judgment,
         plan=plan,

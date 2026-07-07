@@ -111,6 +111,25 @@ class ForgetRequest(BaseModel):
     trust: str | None = None
 
 
+class WorkspaceAttendRequest(BaseModel):
+    """Promote a droplet into the global workspace (ADR-0053), optionally pinned."""
+
+    id: str
+    agent: str | None = None
+    trust: str | None = None
+    pin: bool = False
+
+
+class WorkspaceEntryRequest(BaseModel):
+    """Pin/release a resident workspace entry by droplet id."""
+
+    id: str
+
+
+class WorkspaceClearRequest(BaseModel):
+    include_pinned: bool = False
+
+
 class EventRequest(BaseModel):
     """A client-published bus event (POST /events).
 
@@ -535,6 +554,58 @@ def create_app(config: HydroConfig | None = None) -> FastAPI:
         if droplet is None:
             raise HTTPException(status_code=404, detail=f"droplet {droplet_id!r} not found")
         return droplet.to_dict()
+
+    # ----------------------------------------------------------------- #
+    # Global workspace (ADR-0053): report + top-down control of the
+    # capacity-limited shared store.
+    # ----------------------------------------------------------------- #
+
+    @app.get("/workspace")
+    async def workspace_report() -> dict[str, Any]:
+        """Verbalize the resident workspace set (reportability)."""
+        engine = _engine(app)
+        ws = engine.workspace
+        if ws is None:
+            raise HTTPException(status_code=503, detail="workspace not available")
+        snapshot = ws.to_dict()
+        snapshot["report"] = [_recall_result_to_dict(r) for r in ws.report()]
+        return snapshot
+
+    @app.post("/workspace/attend")
+    async def workspace_attend(req: WorkspaceAttendRequest) -> dict[str, Any]:
+        engine = _engine(app)
+        if engine.workspace is None:
+            raise HTTPException(status_code=503, detail="workspace not available")
+        droplet = engine.repo.get(req.id)
+        if droplet is None:
+            raise HTTPException(status_code=404, detail=f"droplet {req.id!r} not found")
+        agent = _agent(req.agent, req.trust)
+        context = AccessContext()
+        response: ProtocolResponse = engine.verbs.attend(droplet, agent=agent, context=context, pin=req.pin)
+        return response.to_dict()
+
+    @app.post("/workspace/pin")
+    async def workspace_pin(req: WorkspaceEntryRequest) -> dict[str, Any]:
+        engine = _engine(app)
+        if engine.workspace is None:
+            raise HTTPException(status_code=503, detail="workspace not available")
+        return engine.verbs.pin(req.id).to_dict()
+
+    @app.post("/workspace/release")
+    async def workspace_release(req: WorkspaceEntryRequest) -> dict[str, Any]:
+        engine = _engine(app)
+        if engine.workspace is None:
+            raise HTTPException(status_code=503, detail="workspace not available")
+        return engine.verbs.release(req.id).to_dict()
+
+    @app.post("/workspace/clear")
+    async def workspace_clear(req: WorkspaceClearRequest) -> dict[str, Any]:
+        engine = _engine(app)
+        ws = engine.workspace
+        if ws is None:
+            raise HTTPException(status_code=503, detail="workspace not available")
+        removed = ws.clear(include_pinned=req.include_pinned)
+        return {"cleared": removed, "workspace": ws.to_dict()}
 
     @app.post("/freeze")
     async def freeze(req: FreezeRequest) -> dict[str, Any]:

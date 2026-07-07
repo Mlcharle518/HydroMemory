@@ -47,7 +47,30 @@ from hydromemory.recall import (
 from hydromemory.reservoirs import Reservoir, normalize_reservoir
 from hydromemory.schema import STORABLE_PHASES, TRANSIENT_PHASES, Droplet, Phase, State, new_id
 from hydromemory.storage.repository import DropletRepository
-from hydromemory.triggers import detect_triggers
+from hydromemory.triggers import Trigger, detect_triggers
+
+# Triggers salient enough to earn a fresh capture a seat in the global workspace
+# (ADR-0053): high emotional charge, urgency/stakes, or identity-level importance.
+# A capture that fires none of these does not compete on absorb (it may still win
+# a slot later at recall). These are the pipeline's own §5.5 salience signals.
+_WORKSPACE_TRIGGERS: frozenset[Trigger] = frozenset(
+    {Trigger.EXTREME_CHARGE, Trigger.PRESSURE, Trigger.GRAVITY}
+)
+
+
+def _workspace_promotion_score(droplet: Droplet, triggers: set[Trigger]) -> float:
+    """A salience score for a freshly-absorbed droplet competing for the workspace.
+
+    Blends the droplet's own gravity/pressure/charge with a small bonus per fired
+    high-salience trigger, clamped to ``[0, 1]``. This is a capture-time stand-in
+    for the §5.6 recall score (there is no query yet), sufficient to rank a new
+    charged memory against the residents already in the store.
+    """
+    s = droplet.state
+    base = max(s.gravity, s.pressure, s.emotional_charge)
+    bonus = 0.1 * len(triggers & _WORKSPACE_TRIGGERS)
+    val = base + bonus
+    return 0.0 if val < 0.0 else (1.0 if val > 1.0 else val)
 
 # Where each TRANSIENT phase settles when it would otherwise be persisted as a
 # resting state (ADR-0003: only STORABLE_PHASES may be written). The mapping
@@ -156,6 +179,7 @@ def process_experience(
     agent: AgentIdentity | None = None,
     k_related: int = 5,
     emit: Emitter = NULL_EMITTER,
+    workspace: Any = None,
 ) -> dict[str, Any]:
     """Run the §14 capture pipeline; return a decision dict.
 
@@ -260,6 +284,17 @@ def process_experience(
                 "source": droplet.source,
             },
         )
+        # 11b. Global workspace (ADR-0053): a capture that fires a *high-salience*
+        # trigger competes for the shared store, so a charged/urgent/important
+        # memory becomes part of active awareness the moment it lands (not only on
+        # a later recall). Ordinary captures do not compete — this is the
+        # admission rule, reusing triggers the pipeline already detected.
+        if workspace is not None and triggers & _WORKSPACE_TRIGGERS:
+            workspace.promote(
+                droplet,
+                _workspace_promotion_score(droplet, triggers),
+                source_agent="capture",
+            )
 
     return {
         "store": store,
@@ -296,6 +331,8 @@ def recall_for_agent(
     k: int = 10,
     query_ctx: dict[str, Any] | None = None,
     emit: Emitter = NULL_EMITTER,
+    workspace: Any = None,
+    workspace_top_n: int = 3,
 ) -> list[Any]:
     """Run the §14 recall pipeline; return ranked :class:`RecallResult` objects.
 
@@ -359,6 +396,34 @@ def recall_for_agent(
             droplet_id=getattr(result, "droplet_id", None),
             payload={"query": query, "agent": agent_name, "score": getattr(result, "score", None)},
         )
+
+    # Global workspace (ADR-0053): the strongest survivors of this recall compete
+    # for a seat in the capacity-limited shared store, so what a query surfaced is
+    # available as active awareness to every other module (the reader/answer path,
+    # the mesh, future stack layers) — not thrown away when this call returns.
+    # Only the top-N compete, and each must still clear the admission floor.
+    if workspace is not None:
+        for result in scored[:workspace_top_n]:
+            droplet = repo.get(getattr(result, "droplet_id", ""))
+            if droplet is not None:
+                workspace.promote(droplet, float(getattr(result, "score", 0.0)), source_agent=str(agent_name))
+
+        # Rehydration (tier-2 <- tier-3): a droplet this query re-activated may have
+        # been *held then evicted* on an earlier turn/session. Recall is where memory
+        # re-enters active context, so it is the natural chokepoint to close the loop
+        # — re-admit any recalled id that is not live but sits in the workspace
+        # archive, at its last-held salience. It re-competes through ``promote`` (cap
+        # + competition still bound the store), so it is never forced in. Fail-safe:
+        # rehydration must never break the recall path.
+        try:
+            recalled_ids = [
+                oid for oid in (getattr(r, "droplet_id", None) for r in scored) if oid
+            ]
+            if recalled_ids and hasattr(workspace, "rehydrate"):
+                workspace.rehydrate(recalled_ids)
+        except Exception:  # noqa: BLE001 - workspace population must never break recall
+            pass
+
     return scored
 
 

@@ -32,6 +32,10 @@ class EventType(str, Enum):
     ARCHIVED = "archived"
     FORGOTTEN = "forgotten"
     TRANSFORMED = "transformed"  # generic phase change
+    # Global workspace (ADR-0053): the capacity-limited shared store changed —
+    # an item was promoted/evicted/pinned/released/cleared. Broadcast so every
+    # subscriber reads the same small resident set. The subject id rides in droplet_id.
+    WORKSPACE_UPDATED = "workspace_updated"
     # HydroIntent layer (additive; ADR-0037/0042). The subject id rides in droplet_id.
     INTENT_DETECTED = "intent_detected"
     INTENT_PROPOSED = "intent_proposed"
