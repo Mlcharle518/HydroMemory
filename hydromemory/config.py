@@ -9,6 +9,11 @@ from dataclasses import dataclass, field
 @dataclass
 class HydroConfig:
     db_path: str = "hydromemory.db"
+    # Storage backend: "sqlite" (default, file-backed) | "postgres" (pgvector).
+    storage_backend: str = "sqlite"
+    # Postgres DSN; required when storage_backend == "postgres". Read from
+    # HYDRO_DATABASE_URL so secrets stay out of argv.
+    database_url: str | None = None
     vector_dim: int = 256
     vector_backend: str = "brute"  # "brute" (exact, default) | "ann" (hnswlib, .[ann] extra)
     intelligence_backend: str = "stub"  # "stub" | "claude"
@@ -43,6 +48,11 @@ class HydroConfig:
     # HydroIdentity layer (additive, default off; ADR-0052). Stack position 3: the stable-pattern
     # layer between Memory and Intent (roles/values/boundaries/posture); highest-caution updates (§16).
     identity_enabled: bool = False
+    # Wizard-seeded defaults consumed by the CLI when no explicit flag is passed.
+    default_agent: str = "assistant"
+    default_trust: str = "approved"
+    default_reservoir: str = "working_stream"
+    cycle_tick_seconds: float = 1.0
 
     @classmethod
     def from_env(cls) -> HydroConfig:
@@ -52,6 +62,8 @@ class HydroConfig:
         default_dim = "384" if embedding_backend.lower() == "local" else "256"
         return cls(
             db_path=os.environ.get("HYDRO_DB_PATH", "hydromemory.db"),
+            storage_backend=os.environ.get("HYDRO_STORAGE_BACKEND", "sqlite"),
+            database_url=os.environ.get("HYDRO_DATABASE_URL"),
             vector_dim=int(os.environ.get("HYDRO_EMBED_DIM", default_dim)),
             vector_backend=os.environ.get("HYDRO_VECTOR_BACKEND", "brute"),
             intelligence_backend=backend,
@@ -72,4 +84,8 @@ class HydroConfig:
             integrate_enabled=os.environ.get("HYDRO_INTEGRATE_ENABLED", "").lower() in ("1", "true", "yes"),
             sense_enabled=os.environ.get("HYDRO_SENSE_ENABLED", "").lower() in ("1", "true", "yes"),
             identity_enabled=os.environ.get("HYDRO_IDENTITY_ENABLED", "").lower() in ("1", "true", "yes"),
+            default_agent=os.environ.get("HYDRO_DEFAULT_AGENT", "assistant"),
+            default_trust=os.environ.get("HYDRO_DEFAULT_TRUST", "approved"),
+            default_reservoir=os.environ.get("HYDRO_DEFAULT_RESERVOIR", "working_stream"),
+            cycle_tick_seconds=float(os.environ.get("HYDRO_CYCLE_TICK_SECONDS", "1.0")),
         )

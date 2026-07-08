@@ -35,9 +35,11 @@ def _config_from_args(args: argparse.Namespace) -> HydroConfig:
     return cfg
 
 
-def _agent_from_args(args: argparse.Namespace) -> AgentIdentity:
-    trust = TrustLevel(getattr(args, "trust", "approved"))
-    return AgentIdentity(name=getattr(args, "agent", None) or "assistant", trust_level=trust)
+def _agent_from_args(args: argparse.Namespace, cfg: HydroConfig | None = None) -> AgentIdentity:
+    cfg = cfg or HydroConfig.from_env()
+    trust_raw = getattr(args, "trust", None) or cfg.default_trust
+    agent_name = getattr(args, "agent", None) or cfg.default_agent
+    return AgentIdentity(name=agent_name, trust_level=TrustLevel(trust_raw))
 
 
 def _print_decision(decision: dict[str, Any]) -> None:
@@ -94,8 +96,13 @@ def build_parser() -> argparse.ArgumentParser:
     for name, help_text in (("recall", "recall memory for a query"), ("hql", "run a Hydro Query Language statement")):
         p = sub.add_parser(name, help=help_text)
         p.add_argument("query")
-        p.add_argument("--agent", default="assistant")
-        p.add_argument("--trust", choices=["session", "approved", "high_trust"], default="approved")
+        p.add_argument("--agent", default=None, help="override default agent name from config")
+        p.add_argument(
+            "--trust",
+            choices=["session", "approved", "high_trust"],
+            default=None,
+            help="override default trust level from config",
+        )
 
     p_run = sub.add_parser("run-example", help="run a PRD §12 source example (A-F)")
     p_run.add_argument("name", help="example letter A-F")
@@ -115,6 +122,27 @@ def build_parser() -> argparse.ArgumentParser:
     w_release.add_argument("droplet_id")
     w_clear = wsub.add_parser("clear", help="clear the workspace (keeps pins)")
     w_clear.add_argument("--include-pinned", action="store_true", help="also clear pinned entries")
+
+    p_tick = sub.add_parser(
+        "tick",
+        help="advance idle-time decay across the store (one-shot, or --daemon to loop)",
+    )
+    p_tick.add_argument(
+        "--daemon",
+        action="store_true",
+        help="run a tick loop in the foreground until Ctrl-C (interval = cycle_tick_seconds)",
+    )
+    p_tick.add_argument(
+        "--interval",
+        type=float,
+        default=None,
+        help="override cycle_tick_seconds for this run (daemon mode only)",
+    )
+
+    # Interactive onboarding wizard — writes hydromemory.toml + .env (see onboarding.py).
+    from hydromemory.onboarding import add_init_subparser
+
+    add_init_subparser(sub)
 
     # Vault key management. Keys are read from the environment (HYDRO_VAULT_KEY /
     # HYDRO_VAULT_PREV_KEYS), never passed as args, so secrets stay out of argv.
@@ -153,6 +181,37 @@ def build_parser() -> argparse.ArgumentParser:
     r_retire.add_argument("anchor_id")
 
     return parser
+
+
+def _run_tick(args: argparse.Namespace) -> int:
+    """Run a single tick or a daemonized tick loop. Both honour the configured
+    cycle_tick_seconds (or --interval, in daemon mode)."""
+    cfg = _config_from_args(args)
+    engine = build_engine(cfg)
+    try:
+        if not args.daemon:
+            print(json.dumps(engine.tick(), indent=2))
+            return 0
+        from hydromemory.scheduler import TickScheduler
+
+        scheduler = TickScheduler(cfg, interval_seconds=args.interval)
+        scheduler.start()
+        interval = args.interval if args.interval is not None else cfg.cycle_tick_seconds
+        print(f"hydromem tick daemon — interval={interval}s. Ctrl-C to stop.", file=sys.stderr)
+        try:
+            # Block the foreground until interrupted; the worker is the scheduler thread.
+            while True:
+                # threading.Event.wait without timeout would not respond to KeyboardInterrupt
+                # in older Pythons, so use a finite wait in a loop.
+                if scheduler._stop.wait(60.0):
+                    break
+        except KeyboardInterrupt:
+            print("\nstopping tick daemon...", file=sys.stderr)
+        finally:
+            scheduler.stop()
+    finally:
+        engine.close()
+    return 0
 
 
 def _run_vault_op(args: argparse.Namespace) -> int:
@@ -303,11 +362,17 @@ def _run_review(args: argparse.Namespace) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
+    if args.command == "init":
+        from hydromemory.onboarding import run_init_cli
+
+        return run_init_cli(args)
     if args.command == "run-example":
         from hydromemory.examples import run_example
 
         _render_one(run_example(args.name))
         return 0
+    if args.command == "tick":
+        return _run_tick(args)
     if args.command in ("vault-rotate", "vault-encrypt"):
         return _run_vault_op(args)
     if args.command == "review":
@@ -327,9 +392,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             ctx = json.loads(args.context) if args.context else {}
             _print_decision(engine.absorb(args.content, source=args.source, context=ctx))
         elif args.command == "recall":
-            _render(engine.recall(args.query, agent=_agent_from_args(args)))
+            _render(engine.recall(args.query, agent=_agent_from_args(args, cfg)))
         elif args.command == "hql":
-            _render(engine.hql(args.query, agent=_agent_from_args(args)))
+            _render(engine.hql(args.query, agent=_agent_from_args(args, cfg)))
         elif args.command == "workspace":
             _run_workspace(engine, args)
     finally:
