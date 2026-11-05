@@ -71,7 +71,7 @@ alias normalization for the spec's display names
 behavioral metadata (`speed`, `volatile`, `description`) that the recall scorer
 reads. Persistence is in `hydromemory/storage/` (see §4 below). Routing a fresh
 droplet to its home reservoir is `pipeline.route_to_reservoir`: contaminated ->
-`CONTAMINATED`, highly sensitive/identity-relevant -> `SACRED`, otherwise the
+`CONTAMINATED`, highly sensitive (classifier sensitivity >= 0.85, never importance alone) -> `SACRED`, otherwise the
 fast `WORKING_STREAM`.
 
 ### Layer 4 — Phase transformation (§5.4)

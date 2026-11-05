@@ -135,13 +135,16 @@ def route_to_reservoir(
 ) -> Reservoir:
     """Pick the home reservoir for a freshly captured droplet.
 
-    Highly sensitive / identity-relevant memory -> SACRED; contaminated -> the
-    contaminated pool; otherwise it lands in the fast WORKING_STREAM. (Deeper
-    routing happens later via INFILTRATE/FREEZE.)
+    Highly sensitive memory -> SACRED; contaminated -> the contaminated pool;
+    otherwise it lands in the fast WORKING_STREAM. (Deeper routing happens later
+    via INFILTRATE/FREEZE.) Gravity (importance) deliberately does not route to
+    SACRED: SACRED requires consent, so routing on importance silently refused
+    the most important non-sensitive writes. Callers that want SACRED for a
+    non-sensitive memory pass ``reservoir`` explicitly on the event.
     """
     if droplet.phase is Phase.POLLUTED or droplet.meta.get("requires_filtering"):
         return Reservoir.CONTAMINATED
-    if classification_sensitivity >= 0.85 or droplet.state.gravity >= 0.9:
+    if classification_sensitivity >= 0.85:
         return Reservoir.SACRED
     return default
 
