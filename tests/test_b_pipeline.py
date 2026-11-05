@@ -258,6 +258,34 @@ def test_route_to_reservoir_default_working_stream():
     assert route_to_reservoir(Droplet(id="w"), 0.1) is Reservoir.WORKING_STREAM
 
 
+def test_route_to_reservoir_important_but_not_sensitive_stays_out_of_sacred():
+    # Importance (gravity) is not sensitivity: a weighty, non-sensitive memory must
+    # not land in SACRED, where governance refuses it without consent.
+    d = Droplet(id="g", state=State(gravity=0.95))
+    assert route_to_reservoir(d, classification_sensitivity=0.1) is Reservoir.WORKING_STREAM
+
+
+class _ImportantClassifier(Classifier):
+    def classify(self, content: str) -> Classification:
+        return Classification("operational", 0.95, 0.1, "persistent")
+
+
+def test_process_experience_important_non_sensitive_is_stored_outside_sacred():
+    repo = FakeRepo()
+    intel = Intelligence(FakeEmbedder(), FakeAbstractor(), _ImportantClassifier(), FakeDetector())
+    decision = process_experience(
+        {"content": "Deploy failed: database migration 0007 not applied.", "source": "notice"},
+        {},
+        repo=repo,
+        intelligence=intel,
+        check_access=allow_all,
+    )
+    stored = next(iter(repo.store.values()))
+    assert stored.state.gravity >= 0.9
+    assert stored.reservoir is not Reservoir.SACRED
+    assert decision["store"] is True
+
+
 # --- recall_for_agent -------------------------------------------------------
 def _seed_recallable(repo: FakeRepo) -> Droplet:
     d = Droplet(
